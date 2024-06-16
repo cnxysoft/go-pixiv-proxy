@@ -96,12 +96,28 @@ func handlePixivProxy(rw http.ResponseWriter, req *http.Request) {
 
 func handleIllustInfo(c *Context) {
 	params := strings.Split(c.req.URL.Path, "/")
-	pid := params[len(params)-1]
-	if _, err := strconv.Atoi(pid); err != nil {
-		c.String(400, "pid invalid")
-		return
+	api := params[2]
+	if api == "illust" {
+		pid := strings.Split(c.req.URL.RawQuery, "=")[1]
+		if _, err := strconv.Atoi(pid); err != nil {
+			c.String(400, "pid invalid")
+			return
+		}
+		proxyHttpReq(c, "https://www.pixiv.net/ajax/illust/"+pid, "pixiv api error")
+	} else if api == "search" {
+		word := params[len(params)-1]
+		proxyHttpReq(c, "https://www.pixiv.net/ajax/search/artworks/"+word, "pixiv api error")
+	} else if api == "user" {
+		uid := params[len(params)-1]
+		if _, err := strconv.Atoi(uid); err != nil {
+			c.String(400, "uid invalid")
+			return
+		}
+		proxyHttpReq(c, "https://www.pixiv.net/ajax/user/"+uid, "pixiv api error")
+	} else if api == "tags" {
+		tag := params[len(params)-1]
+		proxyHttpReq(c, "https://www.pixiv.net/ajax/tags/frequent/illust"+tag, "pixiv api error")
 	}
-	proxyHttpReq(c, "https://www.pixiv.net/ajax/illust/"+pid, "pixiv api error")
 }
 
 func getIllust(pid string) (*Illust, error) {

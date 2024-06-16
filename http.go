@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -25,6 +28,54 @@ var (
 type Context struct {
 	rw  http.ResponseWriter
 	req *http.Request
+}
+
+type illust struct {
+	Error   bool   `json:"error"`
+	Message string `json:"message"`
+	Body    struct {
+		ID            string `json:"id"`
+		Title         string `json:"title"`
+		CreateDate    string `json:"createDate"`
+		UserId        string `json:"userId"`
+		UserName      string `json:"userName"`
+		BookmarkCount int64  `json:"bookmarkCount"`
+		ViewCount     int64  `json:"viewCount"`
+		AiType        int    `json:"aiType"`
+		XRestrict     int    `json:"xRestrict"`
+		Tags          struct {
+			Tags []struct {
+				Tag       string `json:"tag"`
+				Locked    bool   `json:"locked"`
+				Deletable bool   `json:"deletable"`
+				UserId    string `json:"userId"`
+				UserName  string `json:"userName"`
+			} `json:"tags"`
+		} `json:"tags"`
+		Urls struct {
+			Original string `json:"original"`
+			Regular  string `json:"regular"`
+			Small    string `json:"small"`
+			Thumb    string `json:"thumb"`
+			Mini     string `json:"mini"`
+		} `json:"urls"`
+		PageCount int `json:"pageCount"`
+	}
+}
+
+type pages struct {
+	Error   bool   `json:"error"`
+	Message string `json:"message"`
+	Body    []struct {
+		Urls struct {
+			Original  string `json:"original"`
+			Regular   string `json:"regular"`
+			Small     string `json:"small"`
+			ThumbMini string `json:"thumb_mini"`
+		} `json:"urls"`
+		Width  int `json:"width"`
+		Height int `json:"height"`
+	} `json:"body"`
 }
 
 func (c *Context) write(b []byte, status int) {
@@ -53,7 +104,92 @@ func proxyHttpReq(c *Context, url string, errMsg string) {
 	copyHeader(c.rw.Header(), resp.Header)
 	resp.Header.Del("Cookie")
 	resp.Header.Del("Set-Cookie")
-	_, _ = io.Copy(c.rw, resp.Body)
+	if !strings.Contains(url, "https://i.pximg.net") {
+		p, err := io.ReadAll(resp.Body)
+		if err != nil {
+			c.String(500, errMsg)
+			return
+		}
+		var illust illust
+		err = json.Unmarshal(p, &illust)
+		if err != nil {
+			c.String(500, errMsg)
+			return
+		}
+		if illust.Error {
+			c.String(500, fmt.Sprintf("pixiv api error: %s", illust.Message))
+			return
+		}
+		var ret = map[string]interface{}{
+			"illust": map[string]interface{}{
+				"id":              illust.Body.ID,
+				"title":           illust.Body.Title,
+				"create_date":     illust.Body.CreateDate,
+				"total_bookmarks": illust.Body.BookmarkCount,
+				"total_view":      illust.Body.ViewCount,
+				"illust_ai_type":  illust.Body.AiType,
+				"x_restrict":      illust.Body.XRestrict,
+				"tags":            illust.Body.Tags.Tags,
+				"length":          illust.Body.PageCount,
+				"user": map[string]string{
+					"id":   illust.Body.UserId,
+					"name": illust.Body.UserName,
+				},
+			},
+		}
+		if illust.Body.PageCount == 1 {
+			singleData := map[string]interface{}{
+				"meta_single_page": map[string]string{
+					"original_image_url": illust.Body.Urls.Original,
+				},
+			}
+			ret["meta_single_page"] = singleData
+		} else {
+			resp, err := httpGet(url + "/pages")
+			if err != nil {
+				c.String(500, errMsg)
+				return
+			}
+			defer resp.Body.Close()
+			copyHeader(c.rw.Header(), resp.Header)
+			resp.Header.Del("Cookie")
+			resp.Header.Del("Set-Cookie")
+			p, err := io.ReadAll(resp.Body)
+			if err != nil {
+				c.String(500, errMsg)
+				return
+			}
+			var pages pages
+			err = json.Unmarshal(p, &pages)
+			if err != nil {
+				c.String(500, errMsg)
+				return
+			}
+			if pages.Error {
+				c.String(500, fmt.Sprintf("pixiv api error: %s", pages.Message))
+				return
+			}
+			metaData := map[string]interface{}{
+				"meta_pages": []map[string]interface{}{},
+			}
+			for i := 0; i < illust.Body.PageCount; i++ {
+				metaData["meta_pages"] = append(metaData["meta_pages"].([]map[string]interface{}), map[string]interface{}{
+					"image_urls": map[string]interface{}{
+						"original": pages.Body[i].Urls.Original,
+					},
+				})
+			}
+			ret["illust"].(map[string]interface{})["meta_pages"] = metaData["meta_pages"]
+		}
+		p, err = json.Marshal(ret)
+		if err != nil {
+			c.String(500, errMsg)
+			return
+		}
+		c.write(p, 200)
+	} else {
+		_, _ = io.Copy(c.rw, resp.Body)
+	}
 }
 
 func httpGet(u string) (*http.Response, error) {
