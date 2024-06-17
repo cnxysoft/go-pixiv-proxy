@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -30,7 +29,7 @@ type Context struct {
 	req *http.Request
 }
 
-type illust struct {
+type illustRespsonse struct {
 	Error   bool   `json:"error"`
 	Message string `json:"message"`
 	Body    struct {
@@ -63,7 +62,7 @@ type illust struct {
 	}
 }
 
-type pages struct {
+type pagesResponse struct {
 	Error   bool   `json:"error"`
 	Message string `json:"message"`
 	Body    []struct {
@@ -76,6 +75,27 @@ type pages struct {
 		Width  int `json:"width"`
 		Height int `json:"height"`
 	} `json:"body"`
+}
+
+type searchResponse struct {
+	Error   bool   `json:"error"`
+	Message string `json:"message"`
+	Body    struct {
+		IllustManga struct {
+			Total    int64 `json:"total"`
+			LastPage int   `json:"last_page"`
+			Data     []struct {
+				Id         int64    `json:"id"`
+				Title      string   `json:"title"`
+				IllustType int      `json:"illustType"`
+				XRestrict  int      `json:"xRestrict"`
+				Url        string   `json:"url"`
+				Tags       []string `json:"tags"`
+				UserId     string   `json:"userId"`
+				UserName   string   `json:"userName"`
+			}
+		}
+	}
 }
 
 func (c *Context) write(b []byte, status int) {
@@ -94,7 +114,7 @@ func (c *Context) WriteHeader(statusCode int) {
 	c.rw.WriteHeader(statusCode)
 }
 
-func proxyHttpReq(c *Context, url string, errMsg string) {
+func proxyHttpReq(c *Context, url string, errMsg string, mode getMode) {
 	resp, err := httpGet(url)
 	if err != nil {
 		c.String(500, errMsg)
@@ -104,92 +124,124 @@ func proxyHttpReq(c *Context, url string, errMsg string) {
 	copyHeader(c.rw.Header(), resp.Header)
 	resp.Header.Del("Cookie")
 	resp.Header.Del("Set-Cookie")
-	if !strings.Contains(url, "https://i.pximg.net") {
-		p, err := io.ReadAll(resp.Body)
-		if err != nil {
-			c.String(500, errMsg)
-			return
-		}
-		var illust illust
-		err = json.Unmarshal(p, &illust)
-		if err != nil {
-			c.String(500, errMsg)
-			return
-		}
-		if illust.Error {
-			c.String(500, fmt.Sprintf("pixiv api error: %s", illust.Message))
-			return
-		}
-		var ret = map[string]interface{}{
-			"illust": map[string]interface{}{
-				"id":              illust.Body.ID,
-				"title":           illust.Body.Title,
-				"create_date":     illust.Body.CreateDate,
-				"total_bookmarks": illust.Body.BookmarkCount,
-				"total_view":      illust.Body.ViewCount,
-				"illust_ai_type":  illust.Body.AiType,
-				"x_restrict":      illust.Body.XRestrict,
-				"tags":            illust.Body.Tags.Tags,
-				"length":          illust.Body.PageCount,
-				"user": map[string]string{
-					"id":   illust.Body.UserId,
-					"name": illust.Body.UserName,
-				},
-			},
-		}
-		if illust.Body.PageCount == 1 {
-			singleData := map[string]interface{}{
-				"meta_single_page": map[string]string{
-					"original_image_url": illust.Body.Urls.Original,
-				},
-			}
-			ret["meta_single_page"] = singleData
-		} else {
-			resp, err := httpGet(url + "/pages")
-			if err != nil {
-				c.String(500, errMsg)
-				return
-			}
-			defer resp.Body.Close()
-			copyHeader(c.rw.Header(), resp.Header)
-			resp.Header.Del("Cookie")
-			resp.Header.Del("Set-Cookie")
-			p, err := io.ReadAll(resp.Body)
-			if err != nil {
-				c.String(500, errMsg)
-				return
-			}
-			var pages pages
-			err = json.Unmarshal(p, &pages)
-			if err != nil {
-				c.String(500, errMsg)
-				return
-			}
-			if pages.Error {
-				c.String(500, fmt.Sprintf("pixiv api error: %s", pages.Message))
-				return
-			}
-			metaData := map[string]interface{}{
-				"meta_pages": []map[string]interface{}{},
-			}
-			for i := 0; i < illust.Body.PageCount; i++ {
-				metaData["meta_pages"] = append(metaData["meta_pages"].([]map[string]interface{}), map[string]interface{}{
-					"image_urls": map[string]interface{}{
-						"original": pages.Body[i].Urls.Original,
-					},
-				})
-			}
-			ret["illust"].(map[string]interface{})["meta_pages"] = metaData["meta_pages"]
-		}
-		p, err = json.Marshal(ret)
-		if err != nil {
-			c.String(500, errMsg)
-			return
-		}
-		c.write(p, 200)
+	if mode == 1 {
+		c.write(c.GetArtWorkInfo(resp, url, errMsg), 200)
+	} else if mode == 2 {
+		c.write(c.GetSearchResults(resp, url, errMsg), 200)
 	} else {
 		_, _ = io.Copy(c.rw, resp.Body)
 	}
+}
+
+func (c *Context) GetArtWorkInfo(resp *http.Response, url string, errMsg string) []byte {
+	p, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.String(500, errMsg)
+		return nil
+	}
+	var illust illustRespsonse
+	err = json.Unmarshal(p, &illust)
+	if err != nil {
+		c.String(500, errMsg)
+		return nil
+	}
+	if illust.Error {
+		c.String(500, fmt.Sprintf("pixiv api error: %s", illust.Message))
+		return nil
+	}
+	var tags []map[string]interface{}
+	for i := 0; i < len(illust.Body.Tags.Tags); i++ {
+		tagMap := map[string]interface{}{
+			"tag": illust.Body.Tags.Tags[i].Tag,
+		}
+		tags = append(tags, tagMap)
+	}
+	var ret = map[string]interface{}{
+		"illust": map[string]interface{}{
+			"id":              illust.Body.ID,
+			"title":           illust.Body.Title,
+			"create_date":     illust.Body.CreateDate,
+			"total_bookmarks": illust.Body.BookmarkCount,
+			"total_view":      illust.Body.ViewCount,
+			"illust_ai_type":  illust.Body.AiType,
+			"x_restrict":      illust.Body.XRestrict,
+			"tags":            tags,
+			"length":          illust.Body.PageCount,
+			"user": map[string]string{
+				"id":   illust.Body.UserId,
+				"name": illust.Body.UserName,
+			},
+		},
+	}
+	if illust.Body.PageCount == 1 {
+		singleData := map[string]interface{}{
+			"meta_single_page": map[string]string{
+				"original_image_url": illust.Body.Urls.Original,
+			},
+		}
+		ret["illust"].(map[string]interface{})["meta_single_page"] = singleData["meta_single_page"]
+	} else {
+		resp, err := httpGet(url + "/pages")
+		if err != nil {
+			c.String(500, errMsg)
+			return nil
+		}
+		defer resp.Body.Close()
+		copyHeader(c.rw.Header(), resp.Header)
+		resp.Header.Del("Cookie")
+		resp.Header.Del("Set-Cookie")
+		p, err := io.ReadAll(resp.Body)
+		if err != nil {
+			c.String(500, errMsg)
+			return nil
+		}
+		var pages pagesResponse
+		err = json.Unmarshal(p, &pages)
+		if err != nil {
+			c.String(500, errMsg)
+			return nil
+		}
+		if pages.Error {
+			c.String(500, fmt.Sprintf("pixiv api error: %s", pages.Message))
+			return nil
+		}
+		metaData := map[string]interface{}{
+			"meta_pages": []map[string]interface{}{},
+		}
+		for i := 0; i < illust.Body.PageCount; i++ {
+			metaData["meta_pages"] = append(metaData["meta_pages"].([]map[string]interface{}), map[string]interface{}{
+				"image_urls": map[string]interface{}{
+					"original": pages.Body[i].Urls.Original,
+				},
+			})
+		}
+		ret["illust"].(map[string]interface{})["meta_pages"] = metaData["meta_pages"]
+	}
+	p, err = json.Marshal(ret)
+	if err != nil {
+		c.String(500, errMsg)
+		return nil
+	}
+	return p
+}
+
+func (c *Context) GetSearchResults(resp *http.Response, url string, errMsg string) []byte {
+	p, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.String(500, errMsg)
+		return nil
+	}
+	var searchResults searchResponse
+	err = json.Unmarshal(p, &searchResults)
+	if err != nil {
+		c.String(500, errMsg)
+		return nil
+	}
+	if searchResults.Error {
+		c.String(500, fmt.Sprintf("pixiv api error: %s", searchResults.Message))
+		return nil
+	}
+	return p
 }
 
 func httpGet(u string) (*http.Response, error) {

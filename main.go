@@ -14,6 +14,8 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+type getMode int // 0: 直接获取图片, 1: 获取图片信息, 2: 搜索关键字
+
 var (
 	host    string
 	port    string
@@ -91,10 +93,12 @@ func handlePixivProxy(rw http.ResponseWriter, req *http.Request) {
 			realUrl = strings.Replace(realUrl, "_p0", "_p"+spl[1], 1)
 		}
 	}
-	proxyHttpReq(c, realUrl, "fetch pixiv image error")
+	var GetMode getMode = 0
+	proxyHttpReq(c, realUrl, "fetch pixiv image error", GetMode)
 }
 
 func handleIllustInfo(c *Context) {
+	var GetMode getMode
 	params := strings.Split(c.req.URL.Path, "/")
 	api := params[2]
 	if api == "illust" {
@@ -103,20 +107,28 @@ func handleIllustInfo(c *Context) {
 			c.String(400, "pid invalid")
 			return
 		}
-		proxyHttpReq(c, "https://www.pixiv.net/ajax/illust/"+pid, "pixiv api error")
+		GetMode = 1
+		proxyHttpReq(c, "https://www.pixiv.net/ajax/illust/"+pid, "pixiv api error", GetMode)
 	} else if api == "search" {
-		word := params[len(params)-1]
-		proxyHttpReq(c, "https://www.pixiv.net/ajax/search/artworks/"+word, "pixiv api error")
+		word := strings.Split(c.req.URL.RawQuery, "=")[1]
+		if word == "" {
+			c.String(400, "word invalid")
+			return
+		}
+		GetMode = 2
+		proxyHttpReq(c, "https://www.pixiv.net/ajax/search/artworks/"+word, "pixiv api error", GetMode)
 	} else if api == "user" {
 		uid := params[len(params)-1]
 		if _, err := strconv.Atoi(uid); err != nil {
 			c.String(400, "uid invalid")
 			return
 		}
-		proxyHttpReq(c, "https://www.pixiv.net/ajax/user/"+uid, "pixiv api error")
+		GetMode = 3
+		proxyHttpReq(c, "https://www.pixiv.net/ajax/user/"+uid, "pixiv api error", GetMode)
 	} else if api == "tags" {
 		tag := params[len(params)-1]
-		proxyHttpReq(c, "https://www.pixiv.net/ajax/tags/frequent/illust"+tag, "pixiv api error")
+		GetMode = 4
+		proxyHttpReq(c, "https://www.pixiv.net/ajax/tags/frequent/illust"+tag, "pixiv api error", GetMode)
 	}
 }
 
