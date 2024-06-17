@@ -110,13 +110,34 @@ func handleIllustInfo(c *Context) {
 		GetMode = 1
 		proxyHttpReq(c, "https://www.pixiv.net/ajax/illust/"+pid, "pixiv api error", GetMode)
 	} else if api == "search" {
-		word := strings.Split(c.req.URL.RawQuery, "=")[1]
+		query := strings.Split(c.req.URL.RawQuery, "&")
+		var parm []map[string]string
+		for _, q := range query {
+			tmp := strings.Split(q, "=")
+			m := make(map[string]string)
+			if len(tmp) == 2 {
+				m[tmp[0]] = tmp[1]
+				parm = append(parm, m)
+			}
+		}
+		if parm == nil {
+			c.String(400, "query invalid")
+			return
+		}
+		word := parm[0]["word"]
 		if word == "" {
 			c.String(400, "word invalid")
 			return
 		}
+		page := ""
+		if len(parm) > 1 {
+			page = parm[1]["page"]
+			if _, err := strconv.Atoi(page); err == nil {
+				page = "?p=" + page
+			}
+		}
 		GetMode = 2
-		proxyHttpReq(c, "https://www.pixiv.net/ajax/search/artworks/"+word, "pixiv api error", GetMode)
+		proxyHttpReq(c, "https://www.pixiv.net/ajax/search/artworks/"+word+page, "pixiv api error", GetMode)
 	} else if api == "user" {
 		uid := params[len(params)-1]
 		if _, err := strconv.Atoi(uid); err != nil {

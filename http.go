@@ -85,17 +85,16 @@ type searchResponse struct {
 			Total    int64 `json:"total"`
 			LastPage int   `json:"last_page"`
 			Data     []struct {
-				Id         int64    `json:"id"`
-				Title      string   `json:"title"`
-				IllustType int      `json:"illustType"`
-				XRestrict  int      `json:"xRestrict"`
-				Url        string   `json:"url"`
-				Tags       []string `json:"tags"`
-				UserId     string   `json:"userId"`
-				UserName   string   `json:"userName"`
-			}
-		}
-	}
+				Id        string   `json:"id"`
+				Title     string   `json:"title"`
+				XRestrict int      `json:"xRestrict"`
+				Url       string   `json:"url"`
+				Tags      []string `json:"tags"`
+				UserId    string   `json:"userId"`
+				UserName  string   `json:"userName"`
+			} `json:"data"`
+		} `json:"illustManga"`
+	} `json:"body"`
 }
 
 func (c *Context) write(b []byte, status int) {
@@ -239,6 +238,46 @@ func (c *Context) GetSearchResults(resp *http.Response, url string, errMsg strin
 	}
 	if searchResults.Error {
 		c.String(500, fmt.Sprintf("pixiv api error: %s", searchResults.Message))
+		return nil
+	}
+	var illust []map[string]interface{}
+	for i := 0; i < len(searchResults.Body.IllustManga.Data); i++ {
+		data := searchResults.Body.IllustManga.Data[i]
+		var tags []map[string]string
+		for j := 0; j < len(data.Tags); j++ {
+			var tag = map[string]string{
+				"tag": data.Tags[j],
+			}
+			tags = append(tags, tag)
+		}
+		var illustData = map[string]interface{}{
+			"id":         data.Id,
+			"title":      data.Title,
+			"x_restrict": data.XRestrict,
+			"meta_single_page": map[string]interface{}{
+				"image_urls": map[string]string{
+					"original": data.Url,
+				},
+			},
+			"image_urls": map[string]string{
+				"large": data.Url,
+			},
+			"tags": tags,
+			"user": map[string]string{
+				"id":   data.UserId,
+				"name": data.UserName,
+			},
+			"total_bookmarks": 0,
+		}
+		illust = append(illust, illustData)
+	}
+	var ret = map[string]interface{}{
+		"illusts": illust,
+		"length":  len(searchResults.Body.IllustManga.Data),
+	}
+	p, err = json.Marshal(ret)
+	if err != nil {
+		c.String(500, errMsg)
 		return nil
 	}
 	return p
