@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -97,6 +98,11 @@ type searchResponse struct {
 	} `json:"body"`
 }
 
+type reqOptions struct {
+	Mode int
+	Page float64
+}
+
 func (c *Context) write(b []byte, status int) {
 	c.rw.WriteHeader(status)
 	_, err := c.rw.Write(b)
@@ -113,7 +119,14 @@ func (c *Context) WriteHeader(statusCode int) {
 	c.rw.WriteHeader(statusCode)
 }
 
-func proxyHttpReq(c *Context, url string, errMsg string, mode getMode) {
+func proxyHttpReq(c *Context, url string, errMsg string, options ...reqOptions) {
+	mode := 0
+	page := 0.0
+	for _, opt := range options {
+		mode = opt.Mode
+		page = opt.Page
+	}
+
 	resp, err := httpGet(url)
 	if err != nil {
 		c.String(500, errMsg)
@@ -126,7 +139,7 @@ func proxyHttpReq(c *Context, url string, errMsg string, mode getMode) {
 	if mode == 1 {
 		c.write(c.GetArtWorkInfo(resp, url, errMsg), 200)
 	} else if mode == 2 {
-		c.write(c.GetSearchResults(resp, url, errMsg), 200)
+		c.write(c.GetSearchResults(resp, url, errMsg, page), 200)
 	} else {
 		_, _ = io.Copy(c.rw, resp.Body)
 	}
@@ -224,7 +237,26 @@ func (c *Context) GetArtWorkInfo(resp *http.Response, url string, errMsg string)
 	return p
 }
 
-func (c *Context) GetSearchResults(resp *http.Response, url string, errMsg string) []byte {
+func getTargetPageRange(page float64) (int, int) {
+	tmp := getTargetPage(page, 1)
+	tmpArr := strings.Split(tmp, ".")
+	var s, e int
+	if len(tmpArr) == 2 {
+		if tmpArr[1] == "5" {
+			s = 0
+			e = 30
+		} else {
+			s = 30
+			e = 60
+		}
+	} else {
+		s = 0
+		e = 30
+	}
+	return s, e
+}
+
+func (c *Context) GetSearchResults(resp *http.Response, url string, errMsg string, optPage ...float64) []byte {
 	p, err := io.ReadAll(resp.Body)
 	if err != nil {
 		c.String(500, errMsg)
@@ -240,8 +272,15 @@ func (c *Context) GetSearchResults(resp *http.Response, url string, errMsg strin
 		c.String(500, fmt.Sprintf("pixiv api error: %s", searchResults.Message))
 		return nil
 	}
+	startNum := 0
+	endNum := 30
+	if optPage != nil {
+		startNum, endNum = getTargetPageRange(optPage[0])
+		log.Infof("startNum: %d, endNum: %d", startNum, endNum)
+	}
+	// 取消使用 len(searchResults.Body.IllustManga.Data)
 	var illust []map[string]interface{}
-	for i := 0; i < len(searchResults.Body.IllustManga.Data); i++ {
+	for i := startNum; i < endNum; i++ {
 		data := searchResults.Body.IllustManga.Data[i]
 		var tags []map[string]string
 		for j := 0; j < len(data.Tags); j++ {
@@ -273,7 +312,7 @@ func (c *Context) GetSearchResults(resp *http.Response, url string, errMsg strin
 	}
 	var ret = map[string]interface{}{
 		"illusts": illust,
-		"length":  len(searchResults.Body.IllustManga.Data),
+		"length":  len(illust), // len(searchResults.Body.IllustManga.Data)
 	}
 	p, err = json.Marshal(ret)
 	if err != nil {

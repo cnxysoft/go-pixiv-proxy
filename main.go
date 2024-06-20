@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"flag"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -13,8 +14,6 @@ import (
 	easy "github.com/t-tomalak/logrus-easy-formatter"
 	"github.com/tidwall/gjson"
 )
-
-type getMode int // 0: 直接获取图片, 1: 获取图片信息, 2: 搜索关键字
 
 var (
 	host    string
@@ -93,12 +92,12 @@ func handlePixivProxy(rw http.ResponseWriter, req *http.Request) {
 			realUrl = strings.Replace(realUrl, "_p0", "_p"+spl[1], 1)
 		}
 	}
-	var GetMode getMode = 0
-	proxyHttpReq(c, realUrl, "fetch pixiv image error", GetMode)
+	var GetMode int = 0
+	proxyHttpReq(c, realUrl, "fetch pixiv image error", reqOptions{Mode: GetMode})
 }
 
 func handleIllustInfo(c *Context) {
-	var GetMode getMode
+	var GetMode int
 	params := strings.Split(c.req.URL.Path, "/")
 	api := params[2]
 	if api == "illust" {
@@ -108,7 +107,7 @@ func handleIllustInfo(c *Context) {
 			return
 		}
 		GetMode = 1
-		proxyHttpReq(c, "https://www.pixiv.net/ajax/illust/"+pid, "pixiv api error", GetMode)
+		proxyHttpReq(c, "https://www.pixiv.net/ajax/illust/"+pid, "pixiv api error", reqOptions{Mode: GetMode})
 	} else if api == "search" {
 		query := strings.Split(c.req.URL.RawQuery, "&")
 		var parm []map[string]string
@@ -129,15 +128,17 @@ func handleIllustInfo(c *Context) {
 			c.String(400, "word invalid")
 			return
 		}
-		page := ""
+		page := 0.0
+		reqPage := ""
 		if len(parm) > 1 {
-			page = parm[1]["page"]
-			if _, err := strconv.Atoi(page); err == nil {
-				page = "?p=" + page
+			reqPage = parm[1]["page"]
+			if p, err := strconv.Atoi(reqPage); err == nil {
+				reqPage = "?p=" + getTargetPage(float64(p))
+				page = float64(p)
 			}
 		}
 		GetMode = 2
-		proxyHttpReq(c, "https://www.pixiv.net/ajax/search/artworks/"+word+page, "pixiv api error", GetMode)
+		proxyHttpReq(c, "https://www.pixiv.net/ajax/search/artworks/"+word+reqPage, "pixiv api error", reqOptions{GetMode, page})
 	} else if api == "user" {
 		uid := params[len(params)-1]
 		if _, err := strconv.Atoi(uid); err != nil {
@@ -145,11 +146,22 @@ func handleIllustInfo(c *Context) {
 			return
 		}
 		GetMode = 3
-		proxyHttpReq(c, "https://www.pixiv.net/ajax/user/"+uid, "pixiv api error", GetMode)
+		proxyHttpReq(c, "https://www.pixiv.net/ajax/user/"+uid, "pixiv api error", reqOptions{Mode: GetMode})
 	} else if api == "tags" {
 		tag := params[len(params)-1]
 		GetMode = 4
-		proxyHttpReq(c, "https://www.pixiv.net/ajax/tags/frequent/illust"+tag, "pixiv api error", GetMode)
+		proxyHttpReq(c, "https://www.pixiv.net/ajax/tags/frequent/illust"+tag, "pixiv api error", reqOptions{Mode: GetMode})
+	}
+}
+
+// 获取需要访问的目标页，如带Opt，则返回值包含(opt位)小鼠
+func getTargetPage(page float64, opt ...int) string {
+	p := math.Round(page / 2.0)
+	if opt != nil {
+		log.Infof("getTargetPage: %.0f", p)
+		return strconv.FormatFloat(float64(page)/2.0, 'f', opt[0], 64)
+	} else {
+		return strconv.FormatFloat(p, 'f', -1, 64)
 	}
 }
 
