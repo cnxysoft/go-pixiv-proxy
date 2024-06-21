@@ -104,7 +104,8 @@ type reqOptions struct {
 }
 
 func (c *Context) write(b []byte, status int) {
-	c.rw.WriteHeader(status)
+	// c.WriteHeader(status)
+	_ = status
 	_, err := c.rw.Write(b)
 	if err != nil {
 		log.Error(err)
@@ -274,10 +275,17 @@ func (c *Context) GetSearchResults(resp *http.Response, url string, errMsg strin
 	}
 	startNum := 0
 	endNum := 30
-	if optPage != nil {
-		startNum, endNum = getTargetPageRange(optPage[0])
-		log.Infof("startNum: %d, endNum: %d", startNum, endNum)
+	if searchResults.Body.IllustManga.Total == 0 {
+		startNum = 0
+		endNum = 0
+		log.Debug("no results")
+	} else {
+		if optPage != nil {
+			startNum, endNum = getTargetPageRange(optPage[0])
+			log.Debugf("startNum: %d, endNum: %d", startNum, endNum)
+		}
 	}
+
 	// 取消使用 len(searchResults.Body.IllustManga.Data)
 	var illust []map[string]interface{}
 	for i := startNum; i < endNum; i++ {
