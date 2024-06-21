@@ -20,6 +20,7 @@ var (
 	port    string
 	domain  string
 	cookies string
+	debug   bool
 	//go:embed index.html
 	indexHtml     string
 	directTypes   = []string{"img-original", "img-master", "c", "user-profile", "img-zip-ugoira"}
@@ -158,7 +159,7 @@ func handleIllustInfo(c *Context) {
 func getTargetPage(page float64, opt ...int) string {
 	p := math.Round(page / 2.0)
 	if opt != nil {
-		log.Infof("getTargetPage: %.0f", p)
+		log.Debugf("getTargetPage: %.0f", p)
 		return strconv.FormatFloat(float64(page)/2.0, 'f', opt[0], 64)
 	} else {
 		return strconv.FormatFloat(p, 'f', -1, 64)
@@ -207,6 +208,7 @@ func init() {
 	flag.StringVar(&port, "p", "18090", "port")
 	flag.StringVar(&domain, "d", "", "your domain")
 	flag.StringVar(&cookies, "c", "", "cookie")
+	flag.BoolVar(&debug, "debug", false, "debug mode")
 	log.SetFormatter(&easy.Formatter{
 		TimestampFormat: "2006-01-02 15:04:05",
 		LogFormat:       "[%lvl%][%time%]: %msg% \n",
@@ -216,6 +218,10 @@ func init() {
 
 func main() {
 	flag.Parse()
+	if debug {
+		log.SetLevel(log.DebugLevel)
+		log.Debug("debug mode enabled")
+	}
 	checkEnv()
 	if domain != "" {
 		indexHtml = strings.ReplaceAll(indexHtml, "{image-examples}", docExampleImg)
