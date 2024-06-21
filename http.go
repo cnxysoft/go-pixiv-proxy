@@ -276,7 +276,7 @@ func (c *Context) GetSearchResults(resp *http.Response, url string, errMsg strin
 	endNum := 30
 	if optPage != nil {
 		startNum, endNum = getTargetPageRange(optPage[0])
-		log.Infof("startNum: %d, endNum: %d", startNum, endNum)
+		log.Debugf("startNum: %d, endNum: %d", startNum, endNum)
 	}
 	// 取消使用 len(searchResults.Body.IllustManga.Data)
 	var illust []map[string]interface{}
