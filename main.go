@@ -149,14 +149,39 @@ func handleIllustInfo(c *Context) {
 			return
 		}
 		mode := params["mode"]
+		content := params["content"]
 		if mode != "" {
-			mode = "&mode=" + mode
+			Mode := "daily"
+			if strings.Contains(mode, "_manga") {
+				mode = strings.ReplaceAll(mode, "_manga", "")
+				content = "&content=manga"
+			}
+			if strings.Contains(mode, "male") || strings.Contains(mode, "female") {
+				Mode = strings.ReplaceAll(mode, "day_", "")
+			} else if strings.Contains(mode, "original") {
+				Mode = "original"
+			} else if strings.Contains(mode, "rookie") {
+				Mode = "rookie"
+			} else if strings.Contains(mode, "day") {
+				Mode = strings.ReplaceAll(mode, "day", "daily")
+			} else if strings.Contains(mode, "week") {
+				if !strings.Contains(mode, "weekly") {
+					Mode = strings.ReplaceAll(mode, "week", "weekly")
+				}
+			} else if strings.Contains(mode, "month") {
+				if !strings.Contains(mode, "monthly") {
+					Mode = strings.ReplaceAll(mode, "month", "monthly")
+				}
+			}
+			mode = "&mode=" + Mode
 		}
 		date := params["date"]
 		if date != "" {
+			if strings.Contains(date, "-") {
+				date = strings.ReplaceAll(date, "-", "")
+			}
 			date = "&date=" + date
 		}
-		content := params["content"]
 		if content != "" {
 			content = "&content=" + content
 		}

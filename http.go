@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -261,9 +262,11 @@ func (c *Context) GetRankingResults(resp *http.Response, url string, errMsg stri
 		}
 		illust = append(illust, illustData)
 	}
+	date, _ := time.Parse("20060102", rankings.Date)
 	var ret = map[string]interface{}{
-		"illusts": illust,
-		"length":  len(illust), // len(searchResults.Body.IllustManga.Data)
+		"illusts":  illust,
+		"length":   len(illust), // len(searchResults.Body.IllustManga.Data)
+		"next_url": "date=" + date.Format(time.DateOnly),
 	}
 	p, err = json.Marshal(ret)
 	if err != nil {
