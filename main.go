@@ -99,8 +99,8 @@ func handlePixivProxy(rw http.ResponseWriter, req *http.Request) {
 
 func handleIllustInfo(c *Context) {
 	var GetMode int
-	params := strings.Split(c.req.URL.Path, "/")
-	api := params[2]
+	Params := strings.Split(c.req.URL.Path, "/")
+	api := Params[2]
 	if api == "illust" {
 		pid := strings.Split(c.req.URL.RawQuery, "=")[1]
 		if _, err := strconv.Atoi(pid); err != nil {
@@ -110,29 +110,19 @@ func handleIllustInfo(c *Context) {
 		GetMode = 1
 		proxyHttpReq(c, "https://www.pixiv.net/ajax/illust/"+pid, "pixiv api error", reqOptions{Mode: GetMode})
 	} else if api == "search" {
-		query := strings.Split(c.req.URL.RawQuery, "&")
-		var parm []map[string]string
-		for _, q := range query {
-			tmp := strings.Split(q, "=")
-			m := make(map[string]string)
-			if len(tmp) == 2 {
-				m[tmp[0]] = tmp[1]
-				parm = append(parm, m)
-			}
-		}
-		if parm == nil {
+		parms := getParams(c.req.URL.RawQuery)
+		if parms == nil {
 			c.String(400, "query invalid")
 			return
 		}
-		word := parm[0]["word"]
+		word := parms["word"]
 		if word == "" {
 			c.String(400, "word invalid")
 			return
 		}
 		page := 0.0
-		reqPage := ""
-		if len(parm) > 1 {
-			reqPage = parm[1]["page"]
+		reqPage := parms["page"]
+		if reqPage != "" {
 			if p, err := strconv.Atoi(reqPage); err == nil {
 				reqPage = "?p=" + getTargetPage(float64(p))
 				page = float64(p)
@@ -141,7 +131,7 @@ func handleIllustInfo(c *Context) {
 		GetMode = 2
 		proxyHttpReq(c, "https://www.pixiv.net/ajax/search/artworks/"+word+reqPage, "pixiv api error", reqOptions{GetMode, page})
 	} else if api == "user" {
-		uid := params[len(params)-1]
+		uid := Params[len(Params)-1]
 		if _, err := strconv.Atoi(uid); err != nil {
 			c.String(400, "uid invalid")
 			return
@@ -149,10 +139,53 @@ func handleIllustInfo(c *Context) {
 		GetMode = 3
 		proxyHttpReq(c, "https://www.pixiv.net/ajax/user/"+uid, "pixiv api error", reqOptions{Mode: GetMode})
 	} else if api == "tags" {
-		tag := params[len(params)-1]
+		tag := Params[len(Params)-1]
 		GetMode = 4
 		proxyHttpReq(c, "https://www.pixiv.net/ajax/tags/frequent/illust"+tag, "pixiv api error", reqOptions{Mode: GetMode})
+	} else if api == "ranking" {
+		params := getParams(c.req.URL.RawQuery)
+		if params == nil {
+			c.String(400, "query invalid")
+			return
+		}
+		mode := params["mode"]
+		if mode != "" {
+			mode = "&mode=" + mode
+		}
+		date := params["date"]
+		if date != "" {
+			date = "&date=" + date
+		}
+		content := params["content"]
+		if content != "" {
+			content = "&content=" + content
+		}
+		page := 0.0
+		reqPage := params["page"]
+		if reqPage != "" {
+			p, err := strconv.Atoi(reqPage)
+			if err != nil {
+				c.String(400, "page invalid")
+				return
+			}
+			reqPage = "&p=" + getTargetPage(float64(p))
+			page = float64(p)
+		}
+		GetMode = 5
+		proxyHttpReq(c, "https://www.pixiv.net/ranking.php?format=json"+mode+date+content+reqPage, "pixiv api error", reqOptions{GetMode, page})
 	}
+}
+
+func getParams(rawQuery string) map[string]string {
+	query := strings.Split(rawQuery, "&")
+	parms := make(map[string]string, len(query))
+	for _, q := range query {
+		t := strings.Split(q, "=")
+		if len(t) == 2 {
+			parms[t[0]] = t[1]
+		}
+	}
+	return parms
 }
 
 // 获取需要访问的目标页，如带Opt，则返回值包含(opt位)小鼠
