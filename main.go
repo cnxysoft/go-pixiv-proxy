@@ -142,7 +142,7 @@ func handleIllustInfo(c *Context) {
 		tag := Params[len(Params)-1]
 		GetMode = 4
 		proxyHttpReq(c, "https://www.pixiv.net/ajax/tags/frequent/illust"+tag, "pixiv api error", reqOptions{Mode: GetMode})
-	} else if api == "ranking" {
+	} else if api == "rank" {
 		params := getParams(c.req.URL.RawQuery)
 		if params == nil {
 			c.String(400, "query invalid")

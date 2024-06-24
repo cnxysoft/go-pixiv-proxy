@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -98,6 +99,59 @@ type searchResponse struct {
 	} `json:"body"`
 }
 
+type rankingsResponse struct {
+	Contents  []rankingContents `json:"contents"`
+	Mode      string            `json:"mode"`
+	Content   string            `json:"content"`
+	Page      int               `json:"page"`
+	Prev      any               `json:"prev"`
+	Next      any               `json:"next"`
+	Date      string            `json:"date"`
+	PrevDate  string            `json:"prev_date"`
+	NextDate  any               `json:"next_date"`
+	RankTotal int               `json:"rank_total"`
+}
+
+type rankingContents struct {
+	Title             string   `json:"title"`
+	Date              string   `json:"date"`
+	Tags              []string `json:"tags"`
+	Url               string   `json:"url"`
+	IllustType        string   `json:"illust_type"`
+	IllustBookStyle   string   `json:"illust_book_style"`
+	IllustPageCount   string   `json:"illust_page_count"`
+	UserName          string   `json:"user_name"`
+	ProfileImg        string   `json:"profile_img"`
+	IllustContentType struct {
+		Sexual     int  `json:"sexual"`
+		Lo         bool `json:"lo"`
+		Grotesque  bool `json:"grotesque"`
+		Violent    bool `json:"violent"`
+		HomoSexual bool `json:"homosexual"`
+		Drug       bool `json:"drug"`
+		Thoughts   bool `json:"thoughts"`
+		Antisocial bool `json:"antisocial"`
+		Religion   bool `json:"religion"`
+		Original   bool `json:"original"`
+		Furry      bool `json:"furry"`
+		Bl         bool `json:"bl"`
+		Yuri       bool `json:"yuri"`
+	} `json:"illust_content_type"`
+	IllustSeries          any    `json:"illust_series"`
+	IllustId              int64  `json:"illust_id"`
+	Width                 int    `json:"width"`
+	Height                int    `json:"height"`
+	UserId                int64  `json:"user_id"`
+	Rank                  int    `json:"rank"`
+	YesRank               int    `json:"yes_rank"`
+	RatingCount           int    `json:"rating_count"`
+	ViewCount             int    `json:"view_count"`
+	IllustUploadTimestamp int64  `json:"illust_upload_timestamp"`
+	Attr                  string `json:"attr"`
+	IsBookmarked          bool   `json:"is_bookmarked"`
+	Bookmarkable          bool   `json:"bookmarkable"`
+}
+
 type reqOptions struct {
 	Mode int
 	Page float64
@@ -141,9 +195,82 @@ func proxyHttpReq(c *Context, url string, errMsg string, options ...reqOptions) 
 		c.write(c.GetArtWorkInfo(resp, url, errMsg), 200)
 	} else if mode == 2 {
 		c.write(c.GetSearchResults(resp, url, errMsg, page), 200)
+	} else if mode == 3 {
+		// TODO User
+	} else if mode == 4 {
+		// TODO Tags
+	} else if mode == 5 {
+		c.write(c.GetRankingResults(resp, url, errMsg, page), 200)
 	} else {
 		_, _ = io.Copy(c.rw, resp.Body)
 	}
+}
+
+func (c *Context) GetRankingResults(resp *http.Response, url string, errMsg string, optPage ...float64) []byte {
+	p, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.String(500, errMsg)
+		return nil
+	}
+	var rankings rankingsResponse
+	err = json.Unmarshal(p, &rankings)
+	if err != nil {
+		c.String(500, err.Error())
+		return nil
+	}
+	startNum := 0
+	endNum := len(rankings.Contents)
+	if endNum == 0 {
+		endNum = 0
+		log.Debug("no results")
+	} else {
+		if optPage != nil {
+			startNum, endNum = getTargetPageRange(optPage[0], endNum)
+			log.Debugf("startNum: %d, endNum: %d", startNum, endNum)
+		}
+	}
+
+	var illust []map[string]interface{}
+	for i := startNum; i < endNum; i++ {
+		data := rankings.Contents[i]
+		var tags []map[string]string
+		for j := 0; j < len(data.Tags); j++ {
+			var tag = map[string]string{
+				"tag": data.Tags[j],
+			}
+			tags = append(tags, tag)
+		}
+		var illustData = map[string]interface{}{
+			"id":         data.IllustId,
+			"title":      data.Title,
+			"x_restrict": data.IllustContentType.Sexual,
+			"meta_single_page": map[string]interface{}{
+				"image_urls": map[string]string{
+					"original": data.Url,
+				},
+			},
+			"image_urls": map[string]string{
+				"large": data.Url,
+			},
+			"tags": tags,
+			"user": map[string]string{
+				"id":   strconv.FormatInt(data.UserId, 10),
+				"name": data.UserName,
+			},
+			"total_bookmarks": 0,
+		}
+		illust = append(illust, illustData)
+	}
+	var ret = map[string]interface{}{
+		"illusts": illust,
+		"length":  len(illust), // len(searchResults.Body.IllustManga.Data)
+	}
+	p, err = json.Marshal(ret)
+	if err != nil {
+		c.String(500, errMsg)
+		return nil
+	}
+	return p
 }
 
 func (c *Context) GetArtWorkInfo(resp *http.Response, url string, errMsg string) []byte {
@@ -238,21 +365,28 @@ func (c *Context) GetArtWorkInfo(resp *http.Response, url string, errMsg string)
 	return p
 }
 
-func getTargetPageRange(page float64) (int, int) {
+func getTargetPageRange(page float64, total int) (int, int) {
+	if page == 0 {
+		page = 1
+	}
 	tmp := getTargetPage(page, 1)
 	tmpArr := strings.Split(tmp, ".")
 	var s, e int
 	if len(tmpArr) == 2 {
 		if tmpArr[1] == "5" {
 			s = 0
-			e = 30
+			if total < 30 {
+				e = total
+			} else {
+				e = 30
+			}
 		} else {
 			s = 30
-			e = 60
+			e = total
 		}
 	} else {
 		s = 0
-		e = 30
+		e = total
 	}
 	return s, e
 }
@@ -274,14 +408,13 @@ func (c *Context) GetSearchResults(resp *http.Response, url string, errMsg strin
 		return nil
 	}
 	startNum := 0
-	endNum := 30
-	if searchResults.Body.IllustManga.Total == 0 {
-		startNum = 0
+	endNum := len(searchResults.Body.IllustManga.Data)
+	if endNum == 0 {
 		endNum = 0
 		log.Debug("no results")
 	} else {
 		if optPage != nil {
-			startNum, endNum = getTargetPageRange(optPage[0])
+			startNum, endNum = getTargetPageRange(optPage[0], endNum)
 			log.Debugf("startNum: %d, endNum: %d", startNum, endNum)
 		}
 	}
