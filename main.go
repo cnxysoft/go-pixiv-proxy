@@ -130,12 +130,13 @@ func handleIllustInfo(c *Context) {
 		}
 		GetMode = 2
 		proxyHttpReq(c, "https://www.pixiv.net/ajax/search/artworks/"+word+reqPage, "pixiv api error", reqOptions{GetMode, page})
-	} else if api == "user" {
-		uid := Params[len(Params)-1]
-		if _, err := strconv.Atoi(uid); err != nil {
-			c.String(400, "uid invalid")
+	} else if api == "search_user" {
+		params := getParams(c.req.URL.RawQuery)
+		if params["word"] == "" {
+			c.String(400, "uid or name invalid")
 			return
 		}
+		uid := params["word"]
 		GetMode = 3
 		proxyHttpReq(c, "https://www.pixiv.net/ajax/user/"+uid, "pixiv api error", reqOptions{Mode: GetMode})
 	} else if api == "tags" {
@@ -198,6 +199,27 @@ func handleIllustInfo(c *Context) {
 		}
 		GetMode = 5
 		proxyHttpReq(c, "https://www.pixiv.net/ranking.php?format=json"+mode+date+content+reqPage, "pixiv api error", reqOptions{GetMode, page})
+	} else if api == "member_illust" {
+		params := getParams(c.req.URL.RawQuery)
+		if params == nil {
+			c.String(400, "query invalid")
+			return
+		}
+		uid := params["id"]
+		if uid == "" {
+			c.String(400, "word invalid")
+			return
+		}
+		page := 0.0
+		reqPage := params["page"]
+		if reqPage != "" {
+			if p, err := strconv.Atoi(reqPage); err == nil {
+				// reqPage = "?p=" + getTargetPage(float64(p))
+				page = float64(p)
+			}
+		}
+		GetMode = 6
+		proxyHttpReq(c, "https://www.pixiv.net/ajax/user/"+uid+"/profile/all", "pixiv api error", reqOptions{GetMode, page})
 	}
 }
 

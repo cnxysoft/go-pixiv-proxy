@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -153,6 +154,40 @@ type rankingContents struct {
 	Bookmarkable          bool   `json:"bookmarkable"`
 }
 
+type memberIllustResponse struct {
+	Error   bool   `json:"error"`
+	Message string `json:"message"`
+	Body    struct {
+		Illusts map[string]interface{} `json:"illusts"`
+	} `json:"body"`
+}
+
+type searchUserResponse struct {
+	Error   bool   `json:"error"`
+	Message string `json:"message"`
+	Body    struct {
+		UserId     string `json:"userId"`
+		Name       string `json:"name"`
+		Image      string `json:"image"`
+		ImageBig   string `json:"imageBig"`
+		Premium    bool   `json:"premium"`
+		IsFllowed  bool   `json:"isFollowed"`
+		IsMypixiv  bool   `json:"isMypixiv"`
+		IsBlocking bool   `json:"isBlocking"`
+		BackGround struct {
+			Repeat    string `json:"repeat"`
+			Color     string `json:"color"`
+			Url       string `json:"url"`
+			IsPrivate bool   `json:"isPrivate"`
+		} `json:"background"`
+		SketchLiveId int64 `json:"sketchLiveId"`
+		Partial      int   `json:"partial"`
+		SketchLives  []struct {
+		} `json:"sketchLives"`
+		Commission string `json:"commission"`
+	} `json:"body"`
+}
+
 type reqOptions struct {
 	Mode int
 	Page float64
@@ -197,11 +232,14 @@ func proxyHttpReq(c *Context, url string, errMsg string, options ...reqOptions) 
 	} else if mode == 2 {
 		c.write(c.GetSearchResults(resp, url, errMsg, page), 200)
 	} else if mode == 3 {
-		// TODO User
+		c.write(c.GetUserInfo(resp, url, errMsg), 200)
 	} else if mode == 4 {
+		_, _ = io.Copy(c.rw, resp.Body)
 		// TODO Tags
 	} else if mode == 5 {
 		c.write(c.GetRankingResults(resp, url, errMsg, page), 200)
+	} else if mode == 6 {
+		c.write(c.GetMemberIllusts(resp, url, errMsg, page), 200)
 	} else {
 		_, _ = io.Copy(c.rw, resp.Body)
 	}
@@ -276,7 +314,11 @@ func (c *Context) GetRankingResults(resp *http.Response, url string, errMsg stri
 	return p
 }
 
-func (c *Context) GetArtWorkInfo(resp *http.Response, url string, errMsg string) []byte {
+func (c *Context) GetArtWorkInfo(resp *http.Response, url string, errMsg string, opt ...bool) []byte {
+	disableMeta := false
+	if len(opt) > 0 {
+		disableMeta = opt[0]
+	}
 	p, err := io.ReadAll(resp.Body)
 	if err != nil {
 		c.String(500, errMsg)
@@ -316,7 +358,7 @@ func (c *Context) GetArtWorkInfo(resp *http.Response, url string, errMsg string)
 			},
 		},
 	}
-	if illust.Body.PageCount == 1 {
+	if illust.Body.PageCount == 1 || disableMeta {
 		singleData := map[string]interface{}{
 			"meta_single_page": map[string]string{
 				"original_image_url": illust.Body.Urls.Original,
@@ -330,9 +372,9 @@ func (c *Context) GetArtWorkInfo(resp *http.Response, url string, errMsg string)
 			return nil
 		}
 		defer resp.Body.Close()
-		copyHeader(c.rw.Header(), resp.Header)
-		resp.Header.Del("Cookie")
-		resp.Header.Del("Set-Cookie")
+		// copyHeader(c.rw.Header(), resp.Header)
+		// resp.Header.Del("Cookie")
+		// resp.Header.Del("Set-Cookie")
 		p, err := io.ReadAll(resp.Body)
 		if err != nil {
 			c.String(500, errMsg)
@@ -422,7 +464,6 @@ func (c *Context) GetSearchResults(resp *http.Response, url string, errMsg strin
 		}
 	}
 
-	// 取消使用 len(searchResults.Body.IllustManga.Data)
 	var illust []map[string]interface{}
 	for i := startNum; i < endNum; i++ {
 		data := searchResults.Body.IllustManga.Data[i]
@@ -464,6 +505,145 @@ func (c *Context) GetSearchResults(resp *http.Response, url string, errMsg strin
 		return nil
 	}
 	return p
+}
+
+func (c *Context) GetUserInfo(resp *http.Response, url string, errMsg string) []byte {
+	p, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.String(500, errMsg)
+		return nil
+	}
+	var UserInfo searchUserResponse
+	err = json.Unmarshal(p, &UserInfo)
+	if err != nil {
+		c.String(500, errMsg)
+		return nil
+	}
+	if UserInfo.Error {
+		c.String(500, fmt.Sprintf("pixiv api error: %s", UserInfo.Message))
+		return nil
+	}
+	var ret = map[string]interface{}{
+		"user_previews": []map[string]interface{}{
+			{
+				"user": map[string]interface{}{
+					"id":   UserInfo.Body.UserId,
+					"name": UserInfo.Body.Name,
+					"profile_image_urls": map[string]string{
+						"medium": UserInfo.Body.Image,
+						"large":  UserInfo.Body.ImageBig,
+					},
+					"premium":    UserInfo.Body.Premium,
+					"background": UserInfo.Body.BackGround,
+				},
+			},
+		},
+	}
+	p, err = json.Marshal(ret)
+	if err != nil {
+		c.String(500, errMsg)
+		return nil
+	}
+	return p
+}
+
+func (c *Context) GetMemberIllusts(resp *http.Response, url string, errMsg string, optPage ...float64) []byte {
+	p, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.String(500, errMsg)
+		return nil
+	}
+	var searchResults memberIllustResponse
+	err = json.Unmarshal(p, &searchResults)
+	if err != nil {
+		c.String(500, errMsg)
+		return nil
+	}
+	if searchResults.Error {
+		c.String(500, fmt.Sprintf("pixiv api error: %s", searchResults.Message))
+		return nil
+	}
+	startNum := 0
+	endNum := len(searchResults.Body.Illusts)
+	if endNum == 0 {
+		endNum = 0
+		log.Debug("no results")
+	} else {
+		if optPage != nil {
+			startNum, endNum = getMemberIllustsRange(optPage[0], endNum)
+			log.Debugf("startNum: %d, endNum: %d", startNum, endNum)
+		}
+	}
+	var i int
+	var retMap = map[string]interface{}{
+		"illusts": []map[string]interface{}{},
+	}
+	for k := range searchResults.Body.Illusts {
+		url := "https://www.pixiv.net/ajax/illust/" + k
+		resp, err := httpGet(url)
+		if err != nil {
+			log.Warnln(err)
+			continue
+		}
+		defer resp.Body.Close()
+		// copyHeader(c.rw.Header(), resp.Header)
+		//resp.Header.Del("Cookie")
+		// resp.Header.Del("Set-Cookie")
+		p := c.GetArtWorkInfo(resp, url, "", true)
+		var illust map[string]interface{}
+		err = json.Unmarshal(p, &illust)
+		if err != nil {
+			log.Warnln(err)
+			continue
+		}
+		retMap["illusts"] = append(retMap["illusts"].([]map[string]interface{}), illust["illust"].(map[string]interface{}))
+		if i == endNum {
+			break
+		}
+		i++
+	}
+	var user = map[string]interface{}{}
+	url = "https://www.pixiv.net/ajax/user/" + retMap["illusts"].([]map[string]interface{})[0]["user"].(map[string]interface{})["id"].(string)
+	resp, err = httpGet(url)
+	if err != nil {
+		c.String(500, errMsg)
+		return nil
+	}
+	defer resp.Body.Close()
+	// copyHeader(c.rw.Header(), resp.Header)
+	// resp.Header.Del("Cookie")
+	// resp.Header.Del("Set-Cookie")
+	p = c.GetUserInfo(resp, url, errMsg)
+	err = json.Unmarshal(p, &user)
+	if err != nil {
+		c.String(500, errMsg)
+		return nil
+	}
+	retMap["user"] = user["user_previews"].(interface{}).([]interface{})[0].(map[string]interface{})["user"]
+	retMap["length"] = len(retMap["illusts"].([]map[string]interface{}))
+	p, err = json.Marshal(retMap)
+	if err != nil {
+		c.String(500, errMsg)
+		return nil
+	}
+	return p
+}
+
+func getMemberIllustsRange(page float64, total int) (int, int) {
+	if page == 0 {
+		page = 1
+	}
+	p := math.Ceil(float64(total) / 30)
+	if page <= p {
+		startNum := (int(page) - 1) * 30
+		endNum := startNum + 29
+		if endNum > total {
+			endNum = total
+		}
+		return startNum, endNum
+	} else {
+		return total - 29, total
+	}
 }
 
 func httpGet(u string) (*http.Response, error) {
