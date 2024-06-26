@@ -553,16 +553,19 @@ func (c *Context) GetMemberIllusts(resp *http.Response, url string, errMsg strin
 		c.String(500, errMsg)
 		return nil
 	}
+
 	var searchResults memberIllustResponse
 	err = json.Unmarshal(p, &searchResults)
 	if err != nil {
 		c.String(500, errMsg)
 		return nil
 	}
+
 	if searchResults.Error {
 		c.String(500, fmt.Sprintf("pixiv api error: %s", searchResults.Message))
 		return nil
 	}
+
 	startNum := 0
 	endNum := len(searchResults.Body.Illusts)
 	if endNum == 0 {
@@ -574,52 +577,58 @@ func (c *Context) GetMemberIllusts(resp *http.Response, url string, errMsg strin
 			log.Debugf("startNum: %d, endNum: %d", startNum, endNum)
 		}
 	}
-	var i int
+
+	i := startNum
 	var retMap = map[string]interface{}{
 		"illusts": []map[string]interface{}{},
 	}
-	for k := range searchResults.Body.Illusts {
-		url := "https://www.pixiv.net/ajax/illust/" + k
-		resp, err := httpGet(url)
+
+	if startNum != -1 && endNum != -1 {
+		for k := range searchResults.Body.Illusts {
+			url := "https://www.pixiv.net/ajax/illust/" + k
+			resp, err := httpGet(url)
+			if err != nil {
+				log.Warnln(err)
+				continue
+			}
+			defer resp.Body.Close()
+			// copyHeader(c.rw.Header(), resp.Header)
+			//resp.Header.Del("Cookie")
+			// resp.Header.Del("Set-Cookie")
+			p := c.GetArtWorkInfo(resp, url, "", true)
+			var illust map[string]interface{}
+			err = json.Unmarshal(p, &illust)
+			if err != nil {
+				log.Warnln(err)
+				continue
+			}
+			retMap["illusts"] = append(retMap["illusts"].([]map[string]interface{}), illust["illust"].(map[string]interface{}))
+			if i == endNum {
+				break
+			}
+			i++
+		}
+
+		var user = map[string]interface{}{}
+		url = "https://www.pixiv.net/ajax/user/" + retMap["illusts"].([]map[string]interface{})[0]["user"].(map[string]interface{})["id"].(string)
+		resp, err = httpGet(url)
 		if err != nil {
-			log.Warnln(err)
-			continue
+			c.String(500, errMsg)
+			return nil
 		}
 		defer resp.Body.Close()
 		// copyHeader(c.rw.Header(), resp.Header)
-		//resp.Header.Del("Cookie")
+		// resp.Header.Del("Cookie")
 		// resp.Header.Del("Set-Cookie")
-		p := c.GetArtWorkInfo(resp, url, "", true)
-		var illust map[string]interface{}
-		err = json.Unmarshal(p, &illust)
+		p = c.GetUserInfo(resp, url, errMsg)
+		err = json.Unmarshal(p, &user)
 		if err != nil {
-			log.Warnln(err)
-			continue
+			c.String(500, errMsg)
+			return nil
 		}
-		retMap["illusts"] = append(retMap["illusts"].([]map[string]interface{}), illust["illust"].(map[string]interface{}))
-		if i == endNum {
-			break
-		}
-		i++
+		retMap["user"] = user["user_previews"].(interface{}).([]interface{})[0].(map[string]interface{})["user"]
 	}
-	var user = map[string]interface{}{}
-	url = "https://www.pixiv.net/ajax/user/" + retMap["illusts"].([]map[string]interface{})[0]["user"].(map[string]interface{})["id"].(string)
-	resp, err = httpGet(url)
-	if err != nil {
-		c.String(500, errMsg)
-		return nil
-	}
-	defer resp.Body.Close()
-	// copyHeader(c.rw.Header(), resp.Header)
-	// resp.Header.Del("Cookie")
-	// resp.Header.Del("Set-Cookie")
-	p = c.GetUserInfo(resp, url, errMsg)
-	err = json.Unmarshal(p, &user)
-	if err != nil {
-		c.String(500, errMsg)
-		return nil
-	}
-	retMap["user"] = user["user_previews"].(interface{}).([]interface{})[0].(map[string]interface{})["user"]
+
 	retMap["length"] = len(retMap["illusts"].([]map[string]interface{}))
 	p, err = json.Marshal(retMap)
 	if err != nil {
@@ -642,7 +651,7 @@ func getMemberIllustsRange(page float64, total int) (int, int) {
 		}
 		return startNum, endNum
 	} else {
-		return total - 29, total
+		return -1, -1
 	}
 }
 
