@@ -184,7 +184,7 @@ type searchUserResponse struct {
 		Partial      int   `json:"partial"`
 		SketchLives  []struct {
 		} `json:"sketchLives"`
-		Commission string `json:"commission"`
+		Commission any `json:"commission"` // string or null
 	} `json:"body"`
 }
 
@@ -195,6 +195,7 @@ type reqOptions struct {
 
 func (c *Context) write(b []byte, status int) {
 	// c.WriteHeader(status)
+	c.rw.Header().Set("Content-Length", strconv.Itoa(len(b)))
 	_ = status
 	_, err := c.rw.Write(b)
 	if err != nil {
@@ -224,7 +225,7 @@ func proxyHttpReq(c *Context, url string, errMsg string, options ...reqOptions) 
 		return
 	}
 	defer resp.Body.Close()
-	copyHeader(c.rw.Header(), resp.Header)
+	replaceHeader(c.rw.Header(), resp.Header)
 	resp.Header.Del("Cookie")
 	resp.Header.Del("Set-Cookie")
 	if mode == 1 {
@@ -372,9 +373,9 @@ func (c *Context) GetArtWorkInfo(resp *http.Response, url string, errMsg string,
 			return nil
 		}
 		defer resp.Body.Close()
-		// copyHeader(c.rw.Header(), resp.Header)
-		// resp.Header.Del("Cookie")
-		// resp.Header.Del("Set-Cookie")
+		//replaceHeader(c.rw.Header(), resp.Header)
+		//resp.Header.Del("Cookie")
+		//resp.Header.Del("Set-Cookie")
 		p, err := io.ReadAll(resp.Body)
 		if err != nil {
 			c.String(500, errMsg)
@@ -592,9 +593,9 @@ func (c *Context) GetMemberIllusts(resp *http.Response, url string, errMsg strin
 				continue
 			}
 			defer resp.Body.Close()
-			// copyHeader(c.rw.Header(), resp.Header)
+			//replaceHeader(c.rw.Header(), resp.Header)
 			//resp.Header.Del("Cookie")
-			// resp.Header.Del("Set-Cookie")
+			//resp.Header.Del("Set-Cookie")
 			p := c.GetArtWorkInfo(resp, url, "", true)
 			var illust map[string]interface{}
 			err = json.Unmarshal(p, &illust)
@@ -617,9 +618,9 @@ func (c *Context) GetMemberIllusts(resp *http.Response, url string, errMsg strin
 			return nil
 		}
 		defer resp.Body.Close()
-		// copyHeader(c.rw.Header(), resp.Header)
-		// resp.Header.Del("Cookie")
-		// resp.Header.Del("Set-Cookie")
+		//copyHeader(c.rw.Header(), resp.Header)
+		//resp.Header.Del("Cookie")
+		//resp.Header.Del("Set-Cookie")
 		p = c.GetUserInfo(resp, url, errMsg)
 		err = json.Unmarshal(p, &user)
 		if err != nil {
@@ -696,6 +697,14 @@ func copyHeader(dst, src http.Header) {
 	for k, vv := range src {
 		for _, v := range vv {
 			dst.Add(k, v)
+		}
+	}
+}
+
+func replaceHeader(dst, src http.Header) {
+	for k, vv := range src {
+		for _, v := range vv {
+			dst.Set(k, v)
 		}
 	}
 }

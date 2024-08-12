@@ -102,8 +102,13 @@ func handleIllustInfo(c *Context) {
 	Params := strings.Split(c.req.URL.Path, "/")
 	api := Params[2]
 	if api == "illust" {
-		pid := strings.Split(c.req.URL.RawQuery, "=")[1]
-		if _, err := strconv.Atoi(pid); err != nil {
+		parms := getParams(c.req.URL.RawQuery)
+		if parms == nil {
+			c.String(400, "query invalid")
+			return
+		}
+		pid := parms["pid"]
+		if pid == "" {
 			c.String(400, "pid invalid")
 			return
 		}
